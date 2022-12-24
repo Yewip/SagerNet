@@ -116,12 +116,8 @@ jobs:
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action library
           ./gradlew :plugin:naive:assembleOssRelease
-<<<<<<< HEAD
-          APK=$(find plugin/naive/build/outputs/apk -name '*arm64-v8a*.apk') 
-=======
           APK=$(find plugin/naive/build/outputs/apk -name '*arm64-v8a*.apk')
           APK=$(dirname "$APK")
->>>>>>> origin/test
           echo "APK=$APK" >> $GITHUB_ENV
       - uses: actions/upload-artifact@v3
         with:
