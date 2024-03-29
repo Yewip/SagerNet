@@ -41,7 +41,7 @@ jobs:
             plugin/pingtunnel/src/main/jniLibs
           key: ${{ hashFiles('.github/workflows/*', 'bin/lib/pingtunnel/*', 'pt_status') }}
       - name: Install Golang
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           go-version: 1.16
