@@ -1,4 +1,5 @@
 name: NaïveProxy Plugin Release Build
+
 on:
   workflow_dispatch:
     inputs:
@@ -20,124 +21,115 @@ jobs:
     name: Check Access
     runs-on: ubuntu-latest
     steps:
-      - name: "Check access"
-        uses: "lannonbr/repo-permission-check-action@2.0.2"
+      - uses: lannonbr/repo-permission-check-action@2.0.2
         with:
-          permission: "write"
+          permission: write
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   native:
-    runs-on: ubuntu-latest
     name: Native Build (NaïveProxy)
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         arch: [ armeabi-v7a, arm64-v8a, x86, x86_64 ]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Fetch Status
-        run: git submodule status 'plugin/naive/*' > naive_status
-
-      - name: Naive Cache
-        id: cache
+      - uses: actions/checkout@v4
+      
+      - run: git submodule status 'plugin/naive/*' > naive_status
+      
+      - id: cache
         uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/${{ matrix.arch }}
           key: naive-${{ matrix.arch }}-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-
-      - name: Gradle cache
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           path: ~/.gradle
           key: native-${{ hashFiles('**/*.gradle.kts') }}
-
-      - name: Native Build
-        if: steps.cache.outputs.cache-hit != 'true'
+          
+      - if: steps.cache.outputs.cache-hit != 'true'
         run: |
+          set -e
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           ./run init action naive
           ./run plugin naive init
           ./run plugin naive ${{ matrix.arch }}
-
-      - name: Locate Binary and Calculate SHA256
-        run: |
+          
+      - run: |
+          set -e
           TARGET_DIR="plugin/naive/src/main/jniLibs/${{ matrix.arch }}"
           TARGET_SO="$TARGET_DIR/libnaive.so"
           mkdir -p "$TARGET_DIR"
           
-          # 檢查是否因 Cache 命中而已經存在
           if [ ! -f "$TARGET_SO" ]; then
             NAIVE_BIN=$(find . -type f \( -name "naive" -o -name "libnaive.so" \) | grep -v "jniLibs" | head -n 1)
             if [ -n "$NAIVE_BIN" ]; then
               cp "$NAIVE_BIN" "$TARGET_SO"
             else
-              echo "Error: Binary not found!"
               exit 1
             fi
           fi
           
           openssl sha256 "$TARGET_SO" > sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
-
+          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >> $GITHUB_ENV
+          
       - uses: actions/upload-artifact@v4
         with:
-          name: "NAIVE-SHA256-${{ matrix.arch }} ${{ env.SHA256SUM }}"
+          name: NAIVE-SHA256-${{ matrix.arch }}-${{ env.SHA256SUM }}
           path: sha256sum.txt
 
   build:
     name: Gradle Build (NaïveProxy)
     runs-on: ubuntu-latest
-    needs:
-      - native
-      - check
+    needs: [ native, check ]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Fetch Status
-        run: git submodule status 'plugin/naive/*' > naive_status
-      - name: Naive Cache (armeabi-v7a)
-        uses: actions/cache@v4
+      - uses: actions/checkout@v4
+      
+      - run: git submodule status 'plugin/naive/*' > naive_status
+      
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/armeabi-v7a
           key: naive-armeabi-v7a-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Naive Cache (arm64-v8a)
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/arm64-v8a
           key: naive-arm64-v8a-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Naive Cache (x86)
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/x86
           key: naive-x86-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Naive Cache (x86_64)
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/x86_64
           key: naive-x86_64-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Gradle cache
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: ~/.gradle
           key: native-${{ hashFiles('**/*.gradle.kts') }}
-      - name: Native Build
-        env:
+          
+      - env:
           SKIP_BUILD: on
           BUILD_PLUGIN: naive
         run: |
+          set -e
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
           ./run init action library
           ./gradlew :plugin:naive:assembleOssRelease
-          APK=$(find plugin/naive/build/outputs/apk -name '*arm64-v8a*.apk')
-          APK=$(dirname "$APK")
-          echo "APK=$APK" >> $GITHUB_ENV
+          APK=$(find plugin/naive/build/outputs/apk -name '*arm64-v8a*.apk' | head -n 1)
+          echo "APK=$(dirname "$APK")" >> $GITHUB_ENV
+          
       - uses: actions/upload-artifact@v4
         with:
           name: APKs
@@ -149,14 +141,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      
+      - uses: actions/download-artifact@v4
         with:
-          path: artifacts # 移除 name 限制，確保 APKs 和 SHA256 都能被下載下來
-      - name: Release
-        run: |
+          path: artifacts
+          pattern: '*'
+          
+      - run: |
+          set -e
           wget -O ghr.tar.gz https://github.com/tcnksm/ghr/releases/download/v0.13.0/ghr_v0.13.0_linux_amd64.tar.gz
           tar -xvf ghr.tar.gz
           mv ghr*linux_amd64/ghr .
@@ -171,71 +164,64 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Release
-        run: |
+          pattern: '*'
+          
+      - run: |
+          set -e
           mkdir apks
           find artifacts -name "*.apk" -exec cp {} apks \;
-
-          function upload() {
-            for apk in $@; do
-              curl https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument \
-                -X POST \
-                -F chat_id="${{ secrets.TELEGRAM_CHANNEL }}" \
-                -F document="@$apk" \
-                --silent --show-error --fail >/dev/null &
-            done
-            for job in $(jobs -p); do
-              wait $job || exit 1
-            done
-          }
-          upload apks/*
+          for apk in apks/*; do
+            curl https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument \
+              -X POST \
+              -F chat_id="${{ secrets.TELEGRAM_CHANNEL }}" \
+              -F document="@$apk" \
+              --silent --show-error --fail >/dev/null &
+          done
+          wait
 
   play:
     name: Publish to Play Store
     if: github.event.inputs.play != 'y'
     runs-on: ubuntu-latest
-    needs:
-      - native
-      - check
+    needs: [ native, check ]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Fetch Status
-        run: git submodule status 'plugin/naive/*' > naive_status
-      - name: Naive Cache (armeabi-v7a)
-        uses: actions/cache@v4
+      - uses: actions/checkout@v4
+      
+      - run: git submodule status 'plugin/naive/*' > naive_status
+      
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/armeabi-v7a
           key: naive-armeabi-v7a-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Naive Cache (arm64-v8a)
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/arm64-v8a
           key: naive-arm64-v8a-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Naive Cache (x86)
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/x86
           key: naive-x86-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Naive Cache (x86_64)
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: plugin/naive/src/main/jniLibs/x86_64
           key: naive-x86_64-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Gradle cache
-        uses: actions/cache@v4
+          
+      - uses: actions/cache@v4
         with:
           path: ~/.gradle
           key: native-${{ hashFiles('**/*.gradle.kts') }}
-      - name: Native Build
-        env:
+          
+      - env:
           SKIP_BUILD: on
           BUILD_PLUGIN: naive
         run: |
+          set -e
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
