@@ -28,28 +28,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   native:
-    runs-on: ubuntu-22.04 # [核心修改点1] 上游最新编译环境依赖 22.04
+    runs-on: ubuntu-latest
     name: Native Build (NaïveProxy)
     strategy:
       fail-fast: false
       matrix:
-        # [核心修改点2] 映射 Android ABI 架构到新版构建系统支持的 CPU 架构参数
-        include:
-          - arch: armeabi-v7a
-            target_cpu: arm
-          - arch: arm64-v8a
-            target_cpu: arm64
-          - arch: x86
-            target_cpu: x86
-          - arch: x86_64
-            target_cpu: x64
-    env:
-      EXTRA_FLAGS: 'target_cpu="${{ matrix.target_cpu }}" target_os="android"'
+        arch: [ armeabi-v7a, arm64-v8a, x86, x86_64 ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive # 确保拉取到最新的 naive 子模块
 
       - name: Fetch Status
         run: git submodule status 'plugin/naive/*' > naive_status
@@ -58,36 +45,32 @@ jobs:
         id: cache
         uses: actions/cache@v4
         with:
-          path: |
-            plugin/naive/src/main/jniLibs/${{ matrix.arch }}
+          path: plugin/naive/src/main/jniLibs/${{ matrix.arch }}
           key: naive-${{ matrix.arch }}-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
 
-      # [核心修改点3] 替换旧的构建脚本，接入上游最新的 GN/Ninja 编译环境
-      - name: Setup Build Environment
+      - name: Gradle cache
+        uses: actions/cache@v4
         if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt update
-          sudo apt install -y ninja-build pkg-config ccache bubblewrap
-          wget https://snapshot.debian.org/archive/debian/20250405T083429Z/pool/main/q/qemu/qemu-user_9.2.2%2Bds-1%2Bb2_amd64.deb
-          sudo dpkg -i qemu-user*.deb || true
-          sudo apt remove -y libc6-i386 || true
+        with:
+          path: ~/.gradle
+          key: native-${{ hashFiles('**/*.gradle.kts') }}
 
-      - name: Native Compile Core
+      - name: Native Build
         if: steps.cache.outputs.cache-hit != 'true'
-        working-directory: plugin/naive/src # 假设你的 submodule src 目录在这里
         run: |
-          ./get-clang.sh
-          ./build.sh
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
+          ./run init action naive
+          ./run plugin naive init
+          ./run plugin naive ${{ matrix.arch }}
 
-      - name: Bridge to Gradle (Rename and Move)
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Locate Binary and Calculate SHA256
         run: |
-          # [核心修改点4] 将生成的 naive 文件强行重命名为 libnaive.so，并放到你的舊版 Gradle 結構中
           mkdir -p plugin/naive/src/main/jniLibs/${{ matrix.arch }}
-          cp plugin/naive/src/out/Release/naive plugin/naive/src/main/jniLibs/${{ matrix.arch }}/libnaive.so
-
-      - name: Calculate SHA256
-        run: |
+          NAIVE_BIN=$(find plugin/naive -type f \( -name "naive" -o -name "libnaive.so" \) | grep -v "jniLibs" | head -n 1)
+          if [ -n "$NAIVE_BIN" ]; then
+            cp "$NAIVE_BIN" plugin/naive/src/main/jniLibs/${{ matrix.arch }}/libnaive.so
+          fi
           openssl sha256 plugin/naive/src/main/jniLibs/${{ matrix.arch }}/libnaive.so > sha256sum.txt
           echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
 
@@ -132,7 +115,7 @@ jobs:
         with:
           path: ~/.gradle
           key: native-${{ hashFiles('**/*.gradle.kts') }}
-      - name: Gradle Package Build
+      - name: Native Build
         env:
           SKIP_BUILD: on
           BUILD_PLUGIN: naive
@@ -184,14 +167,13 @@ jobs:
         with:
           name: APKs
           path: artifacts
-      - name: Upload to Telegram
+      - name: Release
         run: |
           mkdir apks
           find artifacts -name "*.apk" -exec cp {} apks \;
 
           function upload() {
             for apk in $@; do
-              echo ">> Uploading $apk"
               curl https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument \
                 -X POST \
                 -F chat_id="${{ secrets.TELEGRAM_CHANNEL }}" \
@@ -241,7 +223,7 @@ jobs:
         with:
           path: ~/.gradle
           key: native-${{ hashFiles('**/*.gradle.kts') }}
-      - name: Play Store Publish Build
+      - name: Native Build
         env:
           SKIP_BUILD: on
           BUILD_PLUGIN: naive
@@ -249,11 +231,8 @@ jobs:
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           export LOCAL_PROPERTIES="${{ secrets.LOCAL_PROPERTIES }}"
-          
-          # [核心修改点5] 修复了 JSON 文件的写入格式，并修正了 Gradle Bundle 指令
           cat > service_account_credentials.json << EOF
           ${{ secrets.ANDROID_PUBLISHER_CREDENTIALS }}
           EOF
-          
           ./run init action library
           ./gradlew :plugin:naive:publishPlayReleaseBundle
