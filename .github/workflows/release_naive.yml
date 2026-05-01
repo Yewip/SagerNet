@@ -54,6 +54,9 @@ jobs:
       - if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -e
+          sudo apt-get update
+          sudo apt-get install -y ccache
+          
           echo "sdk.dir=${ANDROID_HOME}" > local.properties
           echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           ./run init action naive
@@ -71,6 +74,7 @@ jobs:
             if [ -n "$NAIVE_BIN" ]; then
               cp "$NAIVE_BIN" "$TARGET_SO"
             else
+              echo "Error: Binary not found!"
               exit 1
             fi
           fi
@@ -173,6 +177,7 @@ jobs:
           set -e
           mkdir apks
           find artifacts -name "*.apk" -exec cp {} apks \;
+          
           for apk in apks/*; do
             curl https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendDocument \
               -X POST \
