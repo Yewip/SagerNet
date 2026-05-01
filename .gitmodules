@@ -3,7 +3,7 @@
 	url = https://github.com/p4gefau1t/trojan-go
 [submodule "plugin/naive/src/main/jni/naiveproxy"]
 	path = plugin/naive/src/main/jni/naiveproxy
-	url = https://github.com/klzgrad/naiveproxy
+	url = https://github.com/kinmeic/naiveproxy
 [submodule "plugin/pingtunnel/src/main/go/pingtunnel"]
 	path = plugin/pingtunnel/src/main/go/pingtunnel
 	url = https://github.com/esrrhs/pingtunnel
