@@ -67,10 +67,20 @@ jobs:
       - name: Locate Binary and Calculate SHA256
         run: |
           mkdir -p plugin/naive/src/main/jniLibs/${{ matrix.arch }}
-          NAIVE_BIN=$(find plugin/naive -type f \( -name "naive" -o -name "libnaive.so" \) | grep -v "jniLibs" | head -n 1)
+          
+          echo "=== Search Output ==="
+          find . -type f \( -iname "*naive*" -o -iname "*.so" \) | grep -v "jniLibs" || true
+          echo "====================="
+          
+          NAIVE_BIN=$(find . -type f \( -name "naive" -o -name "libnaive.so" \) | grep -v "jniLibs" | head -n 1)
+          
           if [ -n "$NAIVE_BIN" ]; then
             cp "$NAIVE_BIN" plugin/naive/src/main/jniLibs/${{ matrix.arch }}/libnaive.so
+          else
+            echo "Error: Binary not found!"
+            exit 1
           fi
+          
           openssl sha256 plugin/naive/src/main/jniLibs/${{ matrix.arch }}/libnaive.so > sha256sum.txt
           echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
 
