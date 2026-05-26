@@ -79,39 +79,65 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: ./run plugin trojan_go
   naive:
+    name: Native Build (NaïveProxy)
     runs-on: ubuntu-latest
     needs:
       - setup
-    name: Native Build (NaïveProxy)
     strategy:
       fail-fast: false
       matrix:
         arch: [ armeabi-v7a, arm64-v8a, x86, x86_64 ]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Fetch Status
-        run: git submodule status 'plugin/naive/*' > naive_status
-      - name: Naive Cache
-        id: cache
+      - uses: actions/checkout@v4
+      
+      - run: git submodule status 'plugin/naive/*' > naive_status
+      
+      - id: cache
         uses: actions/cache@v4
         with:
-          path: |
-            plugin/naive/src/main/jniLibs/${{ matrix.arch }}
+          path: plugin/naive/src/main/jniLibs/${{ matrix.arch }}
           key: naive-${{ matrix.arch }}-${{ hashFiles('bin/plugin/naive/*', 'naive_status') }}
-      - name: Native Build
+          
+      - uses: actions/cache@v4
         if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.gradle
+          key: native-${{ hashFiles('**/*.gradle.kts') }}
+          
+      - if: steps.cache.outputs.cache-hit != 'true'
         run: |
+          set -e
+          sudo apt-get update
+          sudo apt-get install -y ccache
+          
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          echo "ndk.dir=${ANDROID_HOME}/ndk/25.0.8775105" >> local.properties
           ./run init action naive
           ./run plugin naive init
           ./run plugin naive ${{ matrix.arch }}
-      - name: Calculate SHA256
-        run: |
-          openssl sha256 plugin/naive/src/main/jniLibs/${{ matrix.arch }}/libnaive.so > sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+          
+      - run: |
+          set -e
+          TARGET_DIR="plugin/naive/src/main/jniLibs/${{ matrix.arch }}"
+          TARGET_SO="$TARGET_DIR/libnaive.so"
+          mkdir -p "$TARGET_DIR"
+          
+          if [ ! -f "$TARGET_SO" ]; then
+            NAIVE_BIN=$(find . -type f \( -name "naive" -o -name "libnaive.so" \) | grep -v "jniLibs" | head -n 1)
+            if [ -n "$NAIVE_BIN" ]; then
+              cp "$NAIVE_BIN" "$TARGET_SO"
+            else
+              echo "Error: Binary not found!"
+              exit 1
+            fi
+          fi
+          
+          openssl sha256 "$TARGET_SO" > sha256sum.txt
+          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >> $GITHUB_ENV
+          
       - uses: actions/upload-artifact@v4
         with:
-          name: "NAIVE-SHA256-${{ matrix.arch }} ${{ env.SHA256SUM }}"
+          name: NAIVE-SHA256-${{ matrix.arch }}-${{ env.SHA256SUM }}
           path: sha256sum.txt
   #  pingtunnel:
   #    name: Native Build (PingTunnel)
